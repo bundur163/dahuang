@@ -1,0 +1,131 @@
+package api
+
+import (
+"msg-service/model"
+"github.com/gin-gonic/gin"
+"gorm.io/gorm"
+)
+
+func RegisterSubAPI(r *gin.Engine, db *gorm.DB) {
+g := r.Group("/api/v1/sub")
+
+// 1. 注册/新增子服务
+g.POST("/register", func(c *gin.Context) {
+var req model.SubService
+if err := c.ShouldBindJSON(&req); err != nil {
+c.JSON(200, gin.H{"code": 1, "msg": "参数错误"})
+return
+}
+// 标准写法：不存在则创建，存在则更新
+db.Where("service_name = ?", req.ServiceName).
+Attrs(model.SubService{
+Enable:       true,
+PollInterval: 10,
+}).
+Assign(req).
+FirstOrCreate(&req)
+c.JSON(200, gin.H{"code": 0, "msg": "注册成功"})
+})
+
+// 2. 移除子服务
+g.POST("/remove", func(c *gin.Context) {
+name := c.PostForm("service_name")
+if name == "" {
+c.JSON(200, gin.H{"msg": "服务名称不能为空"})
+return
+}
+db.Where("service_name = ?", name).Delete(&model.SubService{})
+c.JSON(200, gin.H{"msg": "移除成功"})
+})
+
+// 3. 启停子服务
+g.POST("/toggle", func(c *gin.Context) {
+var req struct {
+ServiceName string `json:"service_name"`
+Enable      bool   `json:"enable"`
+}
+if err := c.ShouldBindJSON(&req); err != nil {
+c.JSON(200, gin.H{"msg": "参数错误"})
+return
+}
+db.Model(&model.SubService{}).
+Where("service_name = ?", req.ServiceName).
+Update("enable", req.Enable)
+c.JSON(200, gin.H{"msg": "操作成功"})
+})
+
+// 4. 获取单个配置
+g.GET("/config", func(c *gin.Context) {
+name := c.Query("service_name")
+var sub model.SubService
+db.Where("service_name = ?", name).
+Attrs(model.SubService{
+ServiceName:  name,
+Enable:       true,
+PollInterval: 10,
+}).
+FirstOrCreate(&sub)
+c.JSON(200, sub)
+})
+
+// 5. 获取列表
+g.GET("/list", func(c *gin.Context) {
+var list []model.SubService
+db.Find(&list)
+c.JSON(200, gin.H{"data": list})
+})
+
+// 6. 更新配置
+g.POST("/update", func(c *gin.Context) {
+var req model.SubService
+if err := c.ShouldBindJSON(&req); err != nil {
+c.JSON(200, gin.H{"msg": "参数错误"})
+return
+}
+err := db.Where("service_name = ?", req.ServiceName).
+Assign(req).
+FirstOrCreate(&req).Error
+if err != nil {
+c.JSON(200, gin.H{"msg": "更新失败", "error": err.Error()})
+return
+}
+c.JSON(200, gin.H{"msg": "success"})
+})
+}}
+
+
+// 新增两个接口
+g.POST("/start", func(c *gin.Context) {
+    var req struct {
+        ServiceName string `json:"service_name"`
+        BinPath     string `json:"bin_path"` // 子服务二进制路径，如 "/opt/msg-service/subs/dingtalk_msg/dingtalk_msg"
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(200, gin.H{"msg": "参数错误"})
+        return
+    }
+
+    err := startSubService(req.ServiceName, req.BinPath)
+    if err != nil {
+        c.JSON(200, gin.H{"msg": "启动失败", "error": err.Error()})
+        return
+    }
+    c.JSON(200, gin.H{"msg": "启动成功"})
+})
+
+g.POST("/stop", func(c *gin.Context) {
+    var req struct {
+        ServiceName string `json:"service_name"`
+    }
+    if err := c.ShouldBindJSON(&req); err != nil {
+        c.JSON(200, gin.H{"msg": "参数错误"})
+        return
+    }
+
+    err := stopSubService(req.ServiceName)
+    if err != nil {
+        c.JSON(200, gin.H{"msg": "停止失败", "error": err.Error()})
+        return
+    }
+    c.JSON(200, gin.H{"msg": "停止成功"})
+})

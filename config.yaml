@@ -1,0 +1,14 @@
+server:
+  web_port: 8080
+  log_path: /var/log/msg-service/
+  log_max_days: 14
+
+remote_api:
+  base_url: https://cloud.peopleone.cn
+  config_api: /api/paas/getplatformconfig
+  queue_api: /api/paas/gettaskqueue
+  feedback_api: /api/paas/taskfeedback
+
+http:
+  timeout: 15
+  retry_count: 3

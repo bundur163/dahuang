@@ -1,0 +1,377 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>服务总览</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: "Microsoft Yahei", sans-serif; }
+        body { background: #f5f7fa; padding: 30px; }
+        .page-title { font-size: 26px; margin-bottom: 30px; text-align: center; color: #334; }
+        .top-bar { max-width: 1200px; margin: 0 auto 20px; text-align: right; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 380px)); gap: 20px; justify-content: start; }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            width: 380px;
+            max-width: 100%;
+            overflow: hidden;
+        }
+        .card h3 { font-size: 18px; margin-bottom: 12px; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: white;
+            display: inline-block;
+            margin-bottom: 16px;
+        }
+        .badge-running { background: #00b42a; }
+        .badge-stopped { background: #909399; }
+        .info { font-size: 14px; color: #666; line-height: 1.8; margin-bottom: 20px; }
+        .info-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+        .info-label { flex: 0 0 72px; color: #666; }
+        .info-value { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+        button {
+            padding: 6px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .btn-config { background: #4096ff; color: white; }
+        .btn-log { background: #f5f5f5; color: #666; }
+        .btn-toggle { background: #ff7d00; color: white; }
+        .btn-remove { background: #ff4d4f; color: white; }
+        .btn-add { background: #52c41a; color: white; padding: 8px 16px; }
+
+        .modal {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: none;
+            justify-content: center; align-items: center; z-index: 999;
+        }
+        .modal-body {
+            background: white; padding: 25px; border-radius: 8px; width: 500px;
+            max-height: 85vh; overflow: auto;
+        }
+        .log-box {
+            width: 100%; min-height: 260px; max-height: 60vh; overflow: auto;
+            background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px;
+            font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+        }
+        .modal-title { font-size: 18px; margin-bottom: 20px; }
+        .form-item { margin: 14px 0; }
+        label { display: block; margin-bottom: 6px; color: #555; font-size: 14px; }
+        input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="page-title">服务总览</div>
+        <div class="top-bar">
+            <button class="btn-add" onclick="openAddModal()">+ 新增子服务</button>
+        </div>
+        <div class="grid" id="cardContainer"></div>
+    </div>
+
+    <!-- 配置弹窗 -->
+    <div class="modal" id="configModal">
+        <div class="modal-body">
+            <div class="modal-title" id="configModalTitle"></div>
+            <input type="hidden" id="configServiceName">
+            <div class="form-item">
+                <label>运行状态</label>
+                <select id="configEnable">
+                    <option value="true">运行中</option>
+                    <option value="false">已停用</option>
+                </select>
+            </div>
+            <div class="form-item">
+                <label>轮询周期（秒）</label>
+                <input type="number" id="configPollInterval">
+            </div>
+            <div class="form-item">
+                <label>任务队列API</label>
+                <input type="text" id="configQueueAPI">
+            </div>
+            <div class="form-item">
+                <label>结果反馈API</label>
+                <input type="text" id="configFeedbackAPI">
+            </div>
+            <div style="text-align:right;margin-top:20px;">
+                <button onclick="closeConfigModal()">取消</button>
+                <button onclick="saveConfig()" style="background:#4096ff;color:white;margin-left:10px;">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 日志弹窗 -->
+    <div class="modal" id="logModal">
+        <div class="modal-body">
+            <div class="modal-title" id="logModalTitle">日志</div>
+            <div id="logContent" class="log-box">加载中...</div>
+            <div style="text-align:right;margin-top:16px;">
+                <button onclick="closeLogModal()">关闭</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 新增子服务弹窗 -->
+    <div class="modal" id="addModal">
+        <div class="modal-body">
+            <div class="modal-title">新增子服务</div>
+            <div class="form-item">
+                <label>服务名称</label>
+                <input type="text" id="newServiceName" placeholder="例如：workwechat_msg">
+            </div>
+            <div class="form-item">
+                <label>轮询周期（秒）</label>
+                <input type="number" id="newPollInterval" value="10">
+            </div>
+            <div class="form-item">
+                <label>任务队列API</label>
+                <input type="text" id="newQueueAPI" placeholder="https://cloud.peopleone.cn/api/paas/gettaskqueue">
+            </div>
+            <div class="form-item">
+                <label>结果反馈API</label>
+                <input type="text" id="newFeedbackAPI" placeholder="https://cloud.peopleone.cn/api/paas/taskfeedback">
+            </div>
+            <div style="text-align:right;margin-top:20px;">
+                <button onclick="closeAddModal()">取消</button>
+                <button onclick="addService()" style="background:#52c41a;color:white;margin-left:10px;">注册</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+const base = (() => {
+    try {
+        const origin = window.location.origin;
+        if (origin && origin !== 'null') return origin;
+    } catch (e) {}
+    return 'http://192.168.88.22:8080';
+})();
+
+function apiFetch(url, options) {
+    return fetch(url, options).then(res => {
+        if (!res.ok) {
+            return res.json().catch(() => ({})).then(data => {
+                throw new Error((data && data.msg) || `HTTP ${res.status}`);
+            });
+        }
+        return res.json();
+    });
+}
+
+window.onload = function() {
+    loadServices();
+    setInterval(loadServices, 3000); // 自动3秒刷新一次
+};
+
+// 加载服务列表
+function loadServices() {
+    apiFetch(base + "/api/v1/sub/list")
+    .then(data => {
+        const container = document.getElementById("cardContainer");
+        container.innerHTML = "";
+
+        if (!data || !data.data || data.data.length === 0) {
+            container.innerHTML = "<div style='grid-column:span 3;text-align:center;padding:40px;color:#999'>暂无已注册的子服务，请点击「新增子服务」按钮添加</div>";
+            return;
+        }
+
+        data.data.forEach(item => {
+            const card = document.createElement("div");
+            card.className = "card";
+
+            const name = item.ServiceName || "未知服务";
+            const enable = item.Enable === true;
+            const poll = item.PollInterval || 0;
+            const queue = item.QueueAPI || "-";
+            const feedback = item.FeedbackAPI || "-";
+            const pid = item.RealPID || 0;
+
+            const isRunning = pid > 0;
+            const statusText = isRunning ? "运行中" : "已停用";
+            const badgeClass = isRunning ? "badge-running" : "badge-stopped";
+            const toggleText = isRunning ? "停止" : "启动";
+
+            card.innerHTML = `
+                <h3>${name}</h3>
+                <span class="badge ${badgeClass}">${statusText}</span>
+                <div class="info">
+                    <div class="info-line"><span class="info-label">进程PID：</span><span class="info-value">${pid}</span></div>
+                    <div class="info-line"><span class="info-label">轮询周期：</span><span class="info-value">${poll} 秒</span></div>
+                    <div class="info-line"><span class="info-label">队列API：</span><span class="info-value" title="${queue}">${queue}</span></div>
+                    <div class="info-line"><span class="info-label">反馈API：</span><span class="info-value" title="${feedback}">${feedback}</span></div>
+                </div>
+                <div class="btns">
+                    <button class="btn-config" onclick="openConfigModal('${name}')">配置</button>
+                    <button class="btn-toggle" onclick="toggleService('${name}')">${toggleText}</button>
+                    <button class="btn-remove" onclick="removeService('${name}')">移除</button>
+                    <button class="btn-log" onclick="openLogModal('${name}')">日志</button>
+                </div>
+            `;
+            container.appendChild(card);
+        });
+    });
+}
+
+// 打开配置弹窗
+function openConfigModal(name) {
+    apiFetch(base + "/api/v1/sub/config?service_name=" + encodeURIComponent(name))
+    .then(data => {
+        document.getElementById("configModalTitle").innerText = "配置：" + (data.ServiceName || name);
+        document.getElementById("configServiceName").value = data.ServiceName || name;
+        document.getElementById("configEnable").value = data.Enable === true ? "true" : "false";
+        document.getElementById("configPollInterval").value = data.PollInterval || 10;
+        document.getElementById("configQueueAPI").value = data.QueueAPI || "";
+        document.getElementById("configFeedbackAPI").value = data.FeedbackAPI || "";
+        document.getElementById("configModal").style.display = "flex";
+    });
+}
+
+function closeConfigModal() {
+    document.getElementById("configModal").style.display = "none";
+}
+
+function openLogModal(name) {
+    document.getElementById("logModalTitle").innerText = "日志：" + name;
+    document.getElementById("logContent").innerText = "加载中...";
+    document.getElementById("logModal").style.display = "flex";
+
+    apiFetch(base + "/api/v1/sub/log?service_name=" + encodeURIComponent(name))
+    .then(data => {
+        const text = data && data.data ? data.data : (data && data.msg ? data.msg : "暂无日志");
+        document.getElementById("logContent").innerText = text;
+    })
+    .catch(() => {
+        document.getElementById("logContent").innerText = "读取日志失败";
+    });
+}
+
+function closeLogModal() {
+    document.getElementById("logModal").style.display = "none";
+}
+
+// 保存配置
+function saveConfig() {
+    const data = {
+        ServiceName: document.getElementById("configServiceName").value,
+        Enable: document.getElementById("configEnable").value === "true",
+        PollInterval: parseInt(document.getElementById("configPollInterval").value),
+        QueueAPI: document.getElementById("configQueueAPI").value,
+        FeedbackAPI: document.getElementById("configFeedbackAPI").value
+    };
+
+    apiFetch(base + "/api/v1/sub/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    .then(() => {
+        alert("保存成功");
+        closeConfigModal();
+        loadServices();
+    });
+}
+
+function toggleService(name) {
+    let btn = event.target;
+    btn.disabled = true;
+    btn.innerText = "处理中...";
+
+    apiFetch(base + "/api/v1/sub/list")
+    .then(data => {
+        let target = data.data.find(item => item.ServiceName == name);
+        let isRunning = target.RealPID > 0; // ✅ 修复：大写 RealPID
+
+        if (isRunning) {
+            apiFetch(base + "/api/v1/sub/stop", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ service_name: name })
+            }).then(() => {
+                loadServices();
+                btn.disabled = false;
+            });
+        } else {
+            apiFetch(base + "/api/v1/sub/start", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    service_name: name,
+                    bin_path: "/opt/msg-service/subs/" + name + "/" + name
+                })
+            }).then(() => {
+                loadServices();
+                btn.disabled = false;
+            });
+        }
+    }).catch(err => {
+        console.error(err);
+        btn.disabled = false;
+        btn.innerText = "重试";
+    });
+}
+
+// 移除服务
+function removeService(name) {
+    if (!confirm(`确定要移除服务「${name}」吗？`)) return;
+    apiFetch(base + "/api/v1/sub/remove", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "service_name=" + encodeURIComponent(name)
+    })
+    .then(() => {
+        loadServices();
+    });
+}
+
+// 新增服务弹窗
+function openAddModal() {
+    document.getElementById("newServiceName").value = "";
+    document.getElementById("newPollInterval").value = 10;
+    document.getElementById("newQueueAPI").value = "";
+    document.getElementById("newFeedbackAPI").value = "";
+    document.getElementById("addModal").style.display = "flex";
+}
+
+function closeAddModal() {
+    document.getElementById("addModal").style.display = "none";
+}
+
+// 注册新服务
+function addService() {
+    const name = document.getElementById("newServiceName").value.trim();
+    if (!name) {
+        alert("服务名称不能为空");
+        return;
+    }
+    const data = {
+        ServiceName: name,
+        Enable: true,
+        PollInterval: parseInt(document.getElementById("newPollInterval").value),
+        QueueAPI: document.getElementById("newQueueAPI").value,
+        FeedbackAPI: document.getElementById("newFeedbackAPI").value
+    };
+
+    apiFetch(base + "/api/v1/sub/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    .then(() => {
+        alert("注册成功");
+        closeAddModal();
+        loadServices();
+    });
+}
+</script>
+</body>
+</html>
