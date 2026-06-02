@@ -1,0 +1,17 @@
+{
+  "claudeCode.skipOnboarding": true,
+  "claudeCode.environmentVariables": [
+    {
+      "name": "ANTHROPIC_BASE_URL",
+      "value": "https://api.deepseek.com/anthropic"
+    },
+    {
+      "name": "ANTHROPIC_AUTH_TOKEN",
+      "value": "sk-6295e164a3464091be349898c542302c"
+    },
+    {
+      "name": "ANTHROPIC_MODEL",
+      "value": "deepseek-v4-pro"
+    }
+  ]
+}
