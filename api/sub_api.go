@@ -2,8 +2,10 @@ package api
 
 import (
 	"bufio"
+	"crypto/md5"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"msg-service/model"
 	"msg-service/service"
 	"net/http"
@@ -17,7 +19,25 @@ import (
 	"gorm.io/gorm"
 )
 
-func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名避免冲突
+// resolvePID 通过 ServiceName 和 BinPath 查找进程 PID
+func resolvePID(svc model.SubService) int {
+	pid := service.GetPIDByName(svc.ServiceName)
+	if pid > 0 {
+		return pid
+	}
+	if svc.BinPath != "" {
+		pid = service.GetPIDByName(filepath.Base(svc.BinPath))
+	}
+	return pid
+}
+
+// md5sum 计算字符串的 MD5 十六进制摘要
+func md5sum(s string) string {
+	h := md5.Sum([]byte(s))
+	return fmt.Sprintf("%x", h)
+}
+
+func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) {
 	v1 := r.Group("/api/v1")
 	{
 		sub := v1.Group("/sub")
@@ -26,7 +46,7 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 				var list []model.SubService
 				db.Find(&list)
 				for i := range list {
-					list[i].RealPID = service.GetPIDByName(list[i].ServiceName)
+					list[i].RealPID = resolvePID(list[i])
 				}
 				c.JSON(http.StatusOK, gin.H{"code": 0, "data": list})
 			})
@@ -118,7 +138,39 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 				name := c.Query("service_name")
 				var svc model.SubService
 				db.Where("service_name = ?", name).First(&svc)
-				c.JSON(http.StatusOK, svc)
+				svc.RealPID = resolvePID(svc)
+
+				// 子服务未设置时，从主服务配置继承
+				if svc.APIServerURL == "" || svc.AppID == "" || svc.Secret == "" {
+					var mainCfg model.MainConfig
+					if db.First(&mainCfg).Error == nil {
+						if svc.APIServerURL == "" {
+							svc.APIServerURL = mainCfg.APIServerURL
+						}
+						if svc.AppID == "" {
+							svc.AppID = mainCfg.AppID
+						}
+						if svc.Secret == "" {
+							svc.Secret = mainCfg.Secret
+						}
+					}
+				}
+
+				// 将 ExtraAttrs 合并到响应 JSON 顶层
+				raw, _ := json.Marshal(svc)
+				var merged map[string]interface{}
+				json.Unmarshal(raw, &merged)
+				if svc.ExtraAttrs != "" {
+					var extras map[string]interface{}
+					if json.Unmarshal([]byte(svc.ExtraAttrs), &extras) == nil {
+						for k, v := range extras {
+							if _, exists := merged[k]; !exists {
+								merged[k] = v
+							}
+						}
+					}
+				}
+				c.JSON(http.StatusOK, merged)
 			})
 
 			sub.POST("/start", func(c *gin.Context) {
@@ -128,12 +180,25 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 				}
 				c.ShouldBindJSON(&req)
 
+				// 优先从数据库读取 BinPath
+				binPath := req.BinPath
+				if binPath == "" {
+					var svc model.SubService
+					if db.Where("service_name = ?", req.ServiceName).First(&svc).Error == nil {
+						binPath = svc.BinPath
+					}
+				}
+				if binPath == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "未配置服务程序路径"})
+					return
+				}
+
 				// 获取主服务当前工作目录
 				workDir, _ := os.Getwd()
 				// 将相对路径转换为绝对路径
-				absBinPath := req.BinPath
-				if !filepath.IsAbs(req.BinPath) {
-					absBinPath = filepath.Join(workDir, req.BinPath)
+				absBinPath := binPath
+				if !filepath.IsAbs(binPath) {
+					absBinPath = filepath.Join(workDir, binPath)
 				}
 				// 获取二进制所在目录作为子服务工作目录
 				binDir := filepath.Dir(absBinPath)
@@ -145,7 +210,12 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 					return
 				}
 
-				if service.GetPIDByName(req.ServiceName) == 0 {
+				// 先用 ServiceName 查 PID，再用二进制文件名查
+				pid := service.GetPIDByName(req.ServiceName)
+				if pid == 0 {
+					pid = service.GetPIDByName(filepath.Base(binPath))
+				}
+				if pid == 0 {
 					if err := service.StartSubService(req.ServiceName, absBinPath, binDir); err != nil {
 						zapLog.Error("启动子服务失败", zap.String("service", req.ServiceName), zap.String("bin_path", absBinPath), zap.Error(err))
 						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
@@ -179,6 +249,64 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 				c.JSON(http.StatusOK, gin.H{"code": 0})
 			})
 
+			sub.POST("/stopall", func(c *gin.Context) {
+				var list []model.SubService
+				db.Find(&list)
+
+				stopped := 0
+				for _, svc := range list {
+					if resolvePID(svc) > 0 {
+						service.StopSubService(svc.ServiceName)
+						stopped++
+						zapLog.Info("批量停止子服务", zap.String("service", svc.ServiceName))
+					}
+				}
+
+				zapLog.Info("批量停止完成", zap.Int("stopped", stopped), zap.Int("total", len(list)))
+				c.JSON(http.StatusOK, gin.H{"code": 0, "msg": fmt.Sprintf("已停止 %d 个运行中的子服务", stopped)})
+			})
+
+			sub.POST("/startall", func(c *gin.Context) {
+				var list []model.SubService
+				db.Where("enable = ? AND start_mode != ?", true, "disabled").Find(&list)
+
+				started := 0
+				workDir, _ := os.Getwd()
+				for _, svc := range list {
+					if resolvePID(svc) > 0 {
+						zapLog.Info("子服务已在运行，跳过", zap.String("service", svc.ServiceName))
+						continue
+					}
+
+					if svc.BinPath == "" {
+						zapLog.Error("子服务未配置程序路径，跳过", zap.String("service", svc.ServiceName))
+						continue
+					}
+
+					absBinPath := svc.BinPath
+					if !filepath.IsAbs(svc.BinPath) {
+						absBinPath = filepath.Join(workDir, svc.BinPath)
+					}
+					binDir := filepath.Dir(absBinPath)
+
+					if _, err := os.Stat(absBinPath); os.IsNotExist(err) {
+						zapLog.Error("子服务二进制不存在，跳过", zap.String("service", svc.ServiceName), zap.String("path", absBinPath))
+						continue
+					}
+
+					if err := service.StartSubService(svc.ServiceName, absBinPath, binDir); err != nil {
+						zapLog.Error("启动子服务失败", zap.String("service", svc.ServiceName), zap.Error(err))
+						continue
+					}
+
+					started++
+					zapLog.Info("批量启动子服务", zap.String("service", svc.ServiceName))
+				}
+
+				zapLog.Info("批量启动完成", zap.Int("started", started), zap.Int("enabled_total", len(list)))
+				c.JSON(http.StatusOK, gin.H{"code": 0, "msg": fmt.Sprintf("已启动 %d 个子服务（共 %d 个已启用）", started, len(list))})
+			})
+
 			sub.POST("/remove", func(c *gin.Context) {
 				name := c.PostForm("service_name")
 				service.StopSubService(name)
@@ -189,17 +317,27 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 
 			sub.POST("/register", func(c *gin.Context) {
 				var req struct {
-					ServiceName  *string `json:"service_name"`
-					NameAlias    *string `json:"ServiceName"`
-					Enable       *bool   `json:"Enable"`
-					PollInterval *int    `json:"PollInterval"`
-					QueueAPI     *string `json:"QueueAPI"`
-					FeedbackAPI  *string `json:"FeedbackAPI"`
+					ServiceName     *string `json:"service_name"`
+					NameAlias       *string `json:"ServiceName"`
+					DisplayName     *string `json:"DisplayName"`
+					BinPath         *string `json:"BinPath"`
+					StartMode       *string `json:"StartMode"`
+					Enable          *bool   `json:"Enable"`
+					PollInterval    *int    `json:"PollInterval"`
+					ConfigServerURL *string `json:"ConfigServerURL"`
+					APIServerURL    *string `json:"APIServerURL"`
+					AppID           *string `json:"AppID"`
+					Secret          *string `json:"Secret"`
+					QueueAPI        *string `json:"QueueAPI"`
+					FeedbackAPI     *string `json:"FeedbackAPI"`
+					ExtraAttrs      *string `json:"ExtraAttrs"`
 				}
 				if err := c.ShouldBindJSON(&req); err != nil {
 					c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "无效的请求数据"})
 					return
 				}
+
+				// 确定 ServiceName：优先使用显式传入的，否则由 BinPath 的 MD5 生成
 				name := ""
 				if req.ServiceName != nil && *req.ServiceName != "" {
 					name = *req.ServiceName
@@ -207,22 +345,51 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 					name = *req.NameAlias
 				}
 				if name == "" {
-					c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "服务名称不能为空"})
+					if req.BinPath != nil && *req.BinPath != "" {
+						name = md5sum(*req.BinPath)
+					}
+				}
+				if name == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "服务名称不能为空，请提供服务名称或服务程序路径"})
 					return
 				}
 
 				svc := model.SubService{ServiceName: name}
+				if req.DisplayName != nil {
+					svc.DisplayName = *req.DisplayName
+				}
+				if req.BinPath != nil {
+					svc.BinPath = *req.BinPath
+				}
+				if req.StartMode != nil {
+					svc.StartMode = *req.StartMode
+				}
 				if req.Enable != nil {
 					svc.Enable = *req.Enable
 				}
 				if req.PollInterval != nil {
 					svc.PollInterval = *req.PollInterval
 				}
+				if req.ConfigServerURL != nil {
+					svc.ConfigServerURL = *req.ConfigServerURL
+				}
+				if req.APIServerURL != nil {
+					svc.APIServerURL = *req.APIServerURL
+				}
+				if req.AppID != nil {
+					svc.AppID = *req.AppID
+				}
+				if req.Secret != nil {
+					svc.Secret = *req.Secret
+				}
 				if req.QueueAPI != nil {
 					svc.QueueAPI = *req.QueueAPI
 				}
 				if req.FeedbackAPI != nil {
 					svc.FeedbackAPI = *req.FeedbackAPI
+				}
+				if req.ExtraAttrs != nil {
+					svc.ExtraAttrs = *req.ExtraAttrs
 				}
 
 				var existing model.SubService
@@ -243,17 +410,41 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 						}
 					}
 					updateMap := map[string]interface{}{}
+					if req.DisplayName != nil {
+						updateMap["display_name"] = svc.DisplayName
+					}
+					if req.BinPath != nil {
+						updateMap["bin_path"] = svc.BinPath
+					}
+					if req.StartMode != nil {
+						updateMap["start_mode"] = svc.StartMode
+					}
 					if req.Enable != nil {
 						updateMap["enable"] = svc.Enable
 					}
 					if req.PollInterval != nil {
 						updateMap["poll_interval"] = svc.PollInterval
 					}
+					if req.ConfigServerURL != nil {
+						updateMap["config_server_url"] = svc.ConfigServerURL
+					}
+					if req.APIServerURL != nil {
+						updateMap["api_server_url"] = svc.APIServerURL
+					}
+					if req.AppID != nil {
+						updateMap["app_id"] = svc.AppID
+					}
+					if req.Secret != nil {
+						updateMap["secret"] = svc.Secret
+					}
 					if req.QueueAPI != nil {
 						updateMap["queue_api"] = svc.QueueAPI
 					}
 					if req.FeedbackAPI != nil {
 						updateMap["feedback_api"] = svc.FeedbackAPI
+					}
+					if req.ExtraAttrs != nil {
+						updateMap["extra_attrs"] = svc.ExtraAttrs
 					}
 					if len(updateMap) > 0 {
 						if updateErr := db.Model(&existing).Updates(updateMap).Error; updateErr != nil {
@@ -263,8 +454,8 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 					}
 				}
 
-				zapLog.Info("注册子服务", zap.String("service", name), zap.Bool("enable", svc.Enable))
-				c.JSON(http.StatusOK, gin.H{"code": 0})
+				zapLog.Info("注册子服务", zap.String("service", name), zap.Bool("enable", svc.Enable), zap.String("start_mode", svc.StartMode))
+				c.JSON(http.StatusOK, gin.H{"code": 0, "data": gin.H{"service_name": name}})
 			})
 
 			sub.POST("/update", func(c *gin.Context) {
@@ -291,18 +482,29 @@ func RegisterSubAPI(r *gin.Engine, db *gorm.DB, zapLog *zap.Logger) { // 改名�
 							return
 						}
 					}
-					if updateErr := db.Model(&existing).Updates(map[string]interface{}{
-						"enable":        svc.Enable,
-						"poll_interval": svc.PollInterval,
-						"queue_api":     svc.QueueAPI,
-						"feedback_api":  svc.FeedbackAPI,
-					}).Error; updateErr != nil {
+					updateMap := map[string]interface{}{
+						"display_name":      svc.DisplayName,
+						"bin_path":          svc.BinPath,
+						"enable":            svc.Enable,
+						"poll_interval":     svc.PollInterval,
+						"config_server_url": svc.ConfigServerURL,
+						"api_server_url":    svc.APIServerURL,
+						"app_id":            svc.AppID,
+						"secret":            svc.Secret,
+						"queue_api":         svc.QueueAPI,
+						"feedback_api":      svc.FeedbackAPI,
+						"extra_attrs":       svc.ExtraAttrs,
+					}
+					if svc.StartMode != "" {
+						updateMap["start_mode"] = svc.StartMode
+					}
+					if updateErr := db.Model(&existing).Updates(updateMap).Error; updateErr != nil {
 						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": updateErr.Error()})
 						return
 					}
 				}
 
-				zapLog.Info("更新子服务配置", zap.String("service", svc.ServiceName), zap.Bool("enable", svc.Enable))
+				zapLog.Info("更新子服务配置", zap.String("service", svc.ServiceName), zap.Bool("enable", svc.Enable), zap.String("start_mode", svc.StartMode))
 				c.JSON(http.StatusOK, gin.H{"code": 0})
 			})
 		}

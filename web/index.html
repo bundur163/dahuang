@@ -9,31 +9,35 @@
         .page-title { font-size: 26px; margin-bottom: 30px; text-align: center; color: #334; }
         .top-bar { max-width: 1200px; margin: 0 auto 20px; text-align: right; }
         .container { max-width: 1200px; margin: 0 auto; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 380px)); gap: 20px; justify-content: start; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 420px)); gap: 20px; justify-content: start; }
 
         .card {
             background: white;
             border-radius: 10px;
             padding: 24px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            width: 380px;
+            width: 420px;
             max-width: 100%;
             overflow: hidden;
         }
-        .card h3 { font-size: 18px; margin-bottom: 12px; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card h3 { font-size: 18px; margin-bottom: 4px; color: #222; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card .subtitle { font-size: 12px; color: #999; margin-bottom: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: monospace; }
         .badge {
             padding: 4px 10px;
             border-radius: 4px;
             font-size: 13px;
             color: white;
             display: inline-block;
-            margin-bottom: 16px;
         }
+        .badge-row { margin-bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .badge-running { background: #00b42a; }
         .badge-stopped { background: #909399; }
+        .badge-auto { background: #1677ff; }
+        .badge-manual { background: #ff7d00; }
+        .badge-disabled { background: #909399; }
         .info { font-size: 14px; color: #666; line-height: 1.8; margin-bottom: 20px; }
         .info-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-        .info-label { flex: 0 0 72px; color: #666; }
+        .info-label { flex: 0 0 90px; color: #888; }
         .info-value { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .btns { display: flex; gap: 10px; flex-wrap: wrap; }
         button {
@@ -48,6 +52,7 @@
         .btn-toggle { background: #ff7d00; color: white; }
         .btn-remove { background: #ff4d4f; color: white; }
         .btn-add { background: #52c41a; color: white; padding: 8px 16px; }
+        .btn-settings { background: #722ed1; color: white; padding: 8px 16px; }
 
         .modal {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -55,18 +60,21 @@
             justify-content: center; align-items: center; z-index: 999;
         }
         .modal-body {
-            background: white; padding: 25px; border-radius: 8px; width: 500px;
-            max-height: 85vh; overflow: auto;
+            background: white; padding: 25px; border-radius: 8px; width: 520px;
+            max-height: 85vh; display: flex; flex-direction: column;
         }
         .log-box {
             width: 100%; min-height: 260px; max-height: 60vh; overflow: auto;
             background: #111827; color: #e5e7eb; padding: 12px; border-radius: 6px;
             font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
         }
-        .modal-title { font-size: 18px; margin-bottom: 20px; }
+        .modal-title { font-size: 18px; margin-bottom: 16px; flex-shrink: 0; }
+        .form-scroll { flex: 1; overflow-y: auto; padding-right: 4px; max-height: 55vh; }
         .form-item { margin: 14px 0; }
         label { display: block; margin-bottom: 6px; color: #555; font-size: 14px; }
         input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .form-hint { font-size: 12px; color: #999; margin-top: 2px; }
+        .modal-btns { text-align: right; margin-top: 16px; flex-shrink: 0; padding-top: 12px; border-top: 1px solid #eee; }
     </style>
 </head>
 
@@ -74,9 +82,40 @@
     <div class="container">
         <div class="page-title">服务总览</div>
         <div class="top-bar">
+            <button class="btn-add" onclick="startAll()" style="margin-right:8px;">▶ 启动</button>
+            <button class="btn-remove" onclick="stopAll()" style="margin-right:8px;">⏹ 停止</button>
             <button class="btn-add" onclick="openAddModal()">+ 新增子服务</button>
+            <button class="btn-settings" onclick="openSettingsModal()" style="margin-right:8px;">⚙ 设置</button>
         </div>
         <div class="grid" id="cardContainer"></div>
+    </div>
+
+    <!-- 主服务设置弹窗 -->
+    <div class="modal" id="settingsModal">
+        <div class="modal-body">
+            <div class="modal-title">主服务设置</div>
+            <div class="form-scroll">
+            <div class="form-item">
+                <label>API服务器URL</label>
+                <input type="text" id="settingsAPIServerURL" placeholder="如：http://localhost/dev">
+                <div class="form-hint">所有子服务的默认API服务器地址</div>
+            </div>
+            <div class="form-item">
+                <label>AppID</label>
+                <input type="text" id="settingsAppID" placeholder="调用API的AppID">
+                <div class="form-hint">所有子服务的默认AppID</div>
+            </div>
+            <div class="form-item">
+                <label>Secret</label>
+                <input type="text" id="settingsSecret" placeholder="调用API的Secret">
+                <div class="form-hint">所有子服务的默认Secret</div>
+            </div>
+            </div>
+            <div class="modal-btns">
+                <button onclick="closeSettingsModal()">取消</button>
+                <button onclick="saveSettings()" style="background:#722ed1;color:white;margin-left:10px;">保存</button>
+            </div>
+        </div>
     </div>
 
     <!-- 配置弹窗 -->
@@ -84,11 +123,28 @@
         <div class="modal-body">
             <div class="modal-title" id="configModalTitle"></div>
             <input type="hidden" id="configServiceName">
+            <div class="form-scroll">
+            <div class="form-item">
+                <label>显示名称</label>
+                <input type="text" id="configDisplayName" placeholder="如：钉钉消息服务">
+            </div>
+            <div class="form-item">
+                <label>服务程序</label>
+                <input type="text" id="configBinPath" placeholder="如：subs/dingtalk_msg/dingtalk_msg">
+            </div>
+            <div class="form-item">
+                <label>启动模式</label>
+                <select id="configStartMode">
+                    <option value="auto">自动启动</option>
+                    <option value="manual">手工启动</option>
+                    <option value="disabled">禁用</option>
+                </select>
+            </div>
             <div class="form-item">
                 <label>运行状态</label>
                 <select id="configEnable">
-                    <option value="true">运行中</option>
-                    <option value="false">已停用</option>
+                    <option value="true">启用</option>
+                    <option value="false">停用</option>
                 </select>
             </div>
             <div class="form-item">
@@ -96,16 +152,62 @@
                 <input type="number" id="configPollInterval">
             </div>
             <div class="form-item">
+                <label>配置服务器URL</label>
+                <input type="text" id="configConfigServerURL" placeholder="https://cloud.peopleone.cn">
+            </div>
+            <div class="form-item">
+                <label>API服务器URL</label>
+                <input type="text" id="configAPIServerURL" placeholder="留空则继承主服务设置">
+            </div>
+            <div class="form-item">
+                <label>AppID</label>
+                <input type="text" id="configAppID" placeholder="留空则继承主服务设置">
+            </div>
+            <div class="form-item">
+                <label>Secret</label>
+                <input type="text" id="configSecret" placeholder="留空则继承主服务设置">
+            </div>
+            <div class="form-item">
                 <label>任务队列API</label>
-                <input type="text" id="configQueueAPI">
+                <input type="text" id="configQueueAPI" placeholder="getDingQueue">
             </div>
             <div class="form-item">
                 <label>结果反馈API</label>
-                <input type="text" id="configFeedbackAPI">
+                <input type="text" id="configFeedbackAPI" placeholder="setDingResult">
             </div>
-            <div style="text-align:right;margin-top:20px;">
+            <div class="form-item">
+                <label>扩展属性</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="configExtraAttrs" readonly style="flex:1;background:#f5f5f5;font-family:monospace;font-size:13px;" placeholder="{}">
+                    <button onclick="openKvEditor('config')" style="background:#4096ff;color:white;white-space:nowrap;">编辑</button>
+                </div>
+            </div>
+            </div>
+            <div class="modal-btns">
                 <button onclick="closeConfigModal()">取消</button>
                 <button onclick="saveConfig()" style="background:#4096ff;color:white;margin-left:10px;">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 键值对编辑器弹窗 -->
+    <div class="modal" id="kvEditorModal" style="z-index:1001;">
+        <div class="modal-body" style="width:450px;">
+            <div class="modal-title">编辑扩展属性</div>
+            <div class="form-scroll">
+                <table style="width:100%;border-collapse:collapse;" id="kvTable">
+                    <thead>
+                        <tr><th style="width:40%;text-align:left;padding:4px 6px;font-size:13px;color:#888;">键名</th><th style="text-align:left;padding:4px 6px;font-size:13px;color:#888;">值</th><th style="width:36px;"></th></tr>
+                    </thead>
+                    <tbody id="kvBody"></tbody>
+                </table>
+            </div>
+            <div class="modal-btns" style="display:flex;justify-content:space-between;align-items:center;">
+                <button onclick="addKvRow()" style="background:#f0f5ff;color:#4096ff;border:1px dashed #4096ff;padding:4px 20px;border-radius:4px;cursor:pointer;font-size:13px;">+ 添加属性</button>
+                <div>
+                    <button onclick="closeKvEditor()">取消</button>
+                    <button onclick="confirmKvEditor()" style="background:#4096ff;color:white;margin-left:10px;">确定</button>
+                </div>
             </div>
         </div>
     </div>
@@ -115,7 +217,7 @@
         <div class="modal-body">
             <div class="modal-title" id="logModalTitle">日志</div>
             <div id="logContent" class="log-box">加载中...</div>
-            <div style="text-align:right;margin-top:16px;">
+            <div class="modal-btns">
                 <button onclick="closeLogModal()">关闭</button>
             </div>
         </div>
@@ -125,23 +227,60 @@
     <div class="modal" id="addModal">
         <div class="modal-body">
             <div class="modal-title">新增子服务</div>
+            <div class="form-scroll">
             <div class="form-item">
-                <label>服务名称</label>
-                <input type="text" id="newServiceName" placeholder="例如：workwechat_msg">
+                <label>服务程序 <span style="color:red">*</span></label>
+                <input type="text" id="newBinPath" placeholder="如：subs/dingtalk_msg/dingtalk_msg">
+            </div>
+            <div class="form-item">
+                <label>显示名称</label>
+                <input type="text" id="newDisplayName" placeholder="如：钉钉消息服务">
+            </div>
+            <div class="form-item">
+                <label>启动模式</label>
+                <select id="newStartMode">
+                    <option value="auto">自动启动</option>
+                    <option value="manual" selected>手工启动</option>
+                    <option value="disabled">禁用</option>
+                </select>
             </div>
             <div class="form-item">
                 <label>轮询周期（秒）</label>
                 <input type="number" id="newPollInterval" value="10">
             </div>
             <div class="form-item">
+                <label>配置服务器URL</label>
+                <input type="text" id="newConfigServerURL" placeholder="https://cloud.peopleone.cn">
+            </div>
+            <div class="form-item">
+                <label>API服务器URL</label>
+                <input type="text" id="newAPIServerURL" placeholder="继承自主服务设置">
+            </div>
+            <div class="form-item">
+                <label>AppID</label>
+                <input type="text" id="newAppID" placeholder="继承自主服务设置">
+            </div>
+            <div class="form-item">
+                <label>Secret</label>
+                <input type="text" id="newSecret" placeholder="继承自主服务设置">
+            </div>
+            <div class="form-item">
                 <label>任务队列API</label>
-                <input type="text" id="newQueueAPI" placeholder="https://cloud.peopleone.cn/api/paas/gettaskqueue">
+                <input type="text" id="newQueueAPI" placeholder="getDingQueue">
             </div>
             <div class="form-item">
                 <label>结果反馈API</label>
-                <input type="text" id="newFeedbackAPI" placeholder="https://cloud.peopleone.cn/api/paas/taskfeedback">
+                <input type="text" id="newFeedbackAPI" placeholder="setDingResult">
             </div>
-            <div style="text-align:right;margin-top:20px;">
+            <div class="form-item">
+                <label>扩展属性</label>
+                <div style="display:flex;gap:6px;">
+                    <input type="text" id="newExtraAttrs" readonly style="flex:1;background:#f5f5f5;font-family:monospace;font-size:13px;" placeholder="{}">
+                    <button onclick="openKvEditor('add')" style="background:#4096ff;color:white;white-space:nowrap;">编辑</button>
+                </div>
+            </div>
+            </div>
+            <div class="modal-btns">
                 <button onclick="closeAddModal()">取消</button>
                 <button onclick="addService()" style="background:#52c41a;color:white;margin-left:10px;">注册</button>
             </div>
@@ -170,8 +309,12 @@ function apiFetch(url, options) {
 
 window.onload = function() {
     loadServices();
-    setInterval(loadServices, 3000); // 自动3秒刷新一次
+    setInterval(loadServices, 3000);
 };
+
+const START_MODE_LABELS = { auto: '自动启动', manual: '手工启动', disabled: '禁用' };
+const START_MODE_BADGES = { auto: 'badge-auto', manual: 'badge-manual', disabled: 'badge-disabled' };
+let kvTarget = ''; // 当前编辑扩展属性的弹窗: 'config' 或 'add'
 
 // 加载服务列表
 function loadServices() {
@@ -190,31 +333,43 @@ function loadServices() {
             card.className = "card";
 
             const name = item.ServiceName || "未知服务";
-            const enable = item.Enable === true;
+            const displayName = item.DisplayName || name;
+            const binPath = item.BinPath || "-";
+            const startMode = item.StartMode || "manual";
             const poll = item.PollInterval || 0;
+            const apiServer = item.APIServerURL || "-";
             const queue = item.QueueAPI || "-";
             const feedback = item.FeedbackAPI || "-";
             const pid = item.RealPID || 0;
 
             const isRunning = pid > 0;
+            const isDisabled = startMode === "disabled";
             const statusText = isRunning ? "运行中" : "已停用";
             const badgeClass = isRunning ? "badge-running" : "badge-stopped";
+            const modeLabel = START_MODE_LABELS[startMode] || startMode;
+            const modeBadge = START_MODE_BADGES[startMode] || 'badge-manual';
             const toggleText = isRunning ? "停止" : "启动";
+            const toggleDisabled = isDisabled && !isRunning ? "disabled" : "";
 
             card.innerHTML = `
-                <h3>${name}</h3>
-                <span class="badge ${badgeClass}">${statusText}</span>
+                <h3>${escHtml(displayName)}</h3>
+                <div class="subtitle">${escHtml(binPath)}</div>
+                <div class="badge-row">
+                    <span class="badge ${badgeClass}">${statusText}</span>
+                    <span class="badge ${modeBadge}">${modeLabel}</span>
+                </div>
                 <div class="info">
                     <div class="info-line"><span class="info-label">进程PID：</span><span class="info-value">${pid}</span></div>
                     <div class="info-line"><span class="info-label">轮询周期：</span><span class="info-value">${poll} 秒</span></div>
-                    <div class="info-line"><span class="info-label">队列API：</span><span class="info-value" title="${queue}">${queue}</span></div>
-                    <div class="info-line"><span class="info-label">反馈API：</span><span class="info-value" title="${feedback}">${feedback}</span></div>
+                    <div class="info-line"><span class="info-label">API服务器：</span><span class="info-value" title="${escHtml(apiServer)}">${escHtml(apiServer)}</span></div>
+                    <div class="info-line"><span class="info-label">队列API：</span><span class="info-value" title="${escHtml(queue)}">${escHtml(queue)}</span></div>
+                    <div class="info-line"><span class="info-label">反馈API：</span><span class="info-value" title="${escHtml(feedback)}">${escHtml(feedback)}</span></div>
                 </div>
                 <div class="btns">
-                    <button class="btn-config" onclick="openConfigModal('${name}')">配置</button>
-                    <button class="btn-toggle" onclick="toggleService('${name}')">${toggleText}</button>
-                    <button class="btn-remove" onclick="removeService('${name}')">移除</button>
-                    <button class="btn-log" onclick="openLogModal('${name}')">日志</button>
+                    <button class="btn-config" onclick="openConfigModal('${escAttr(name)}')">配置</button>
+                    <button class="btn-toggle" onclick="toggleService('${escAttr(name)}')" ${toggleDisabled}>${toggleText}</button>
+                    <button class="btn-remove" onclick="removeService('${escAttr(name)}')">移除</button>
+                    <button class="btn-log" onclick="openLogModal('${escAttr(name)}')">日志</button>
                 </div>
             `;
             container.appendChild(card);
@@ -222,16 +377,78 @@ function loadServices() {
     });
 }
 
-// 打开配置弹窗
+function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function escAttr(s) {
+    return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+// ====== 主服务设置 ======
+function openSettingsModal() {
+    apiFetch(base + "/api/v1/common/settings")
+    .then(data => {
+        const cfg = data.data || {};
+        document.getElementById("settingsAPIServerURL").value = cfg.APIServerURL || "";
+        document.getElementById("settingsAppID").value = cfg.AppID || "";
+        document.getElementById("settingsSecret").value = cfg.Secret || "";
+        document.getElementById("settingsModal").style.display = "flex";
+    });
+}
+
+function closeSettingsModal() {
+    document.getElementById("settingsModal").style.display = "none";
+}
+
+function saveSettings() {
+    const data = {
+        APIServerURL: document.getElementById("settingsAPIServerURL").value,
+        AppID: document.getElementById("settingsAppID").value,
+        Secret: document.getElementById("settingsSecret").value
+    };
+    apiFetch(base + "/api/v1/common/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    .then(() => {
+        alert("主服务设置已保存");
+        closeSettingsModal();
+    })
+    .catch(err => {
+        alert("保存失败: " + err.message);
+    });
+}
+
+// 获取主服务默认配置（用于新增子服务时继承）
+function fetchMainDefaults(callback) {
+    apiFetch(base + "/api/v1/common/settings")
+    .then(data => {
+        callback(data.data || {});
+    })
+    .catch(() => {
+        callback({});
+    });
+}
+
+// ====== 配置弹窗 ======
 function openConfigModal(name) {
     apiFetch(base + "/api/v1/sub/config?service_name=" + encodeURIComponent(name))
     .then(data => {
-        document.getElementById("configModalTitle").innerText = "配置：" + (data.ServiceName || name);
+        document.getElementById("configModalTitle").innerText = "配置：" + (data.DisplayName || data.ServiceName || name);
         document.getElementById("configServiceName").value = data.ServiceName || name;
+        document.getElementById("configDisplayName").value = data.DisplayName || "";
+        document.getElementById("configBinPath").value = data.BinPath || "";
+        document.getElementById("configStartMode").value = data.StartMode || "manual";
         document.getElementById("configEnable").value = data.Enable === true ? "true" : "false";
         document.getElementById("configPollInterval").value = data.PollInterval || 10;
+        document.getElementById("configConfigServerURL").value = data.ConfigServerURL || "";
+        document.getElementById("configAPIServerURL").value = data.APIServerURL || "";
+        document.getElementById("configAppID").value = data.AppID || "";
+        document.getElementById("configSecret").value = data.Secret || "";
         document.getElementById("configQueueAPI").value = data.QueueAPI || "";
         document.getElementById("configFeedbackAPI").value = data.FeedbackAPI || "";
+        document.getElementById("configExtraAttrs").value = data.ExtraAttrs || "";
         document.getElementById("configModal").style.display = "flex";
     });
 }
@@ -259,14 +476,21 @@ function closeLogModal() {
     document.getElementById("logModal").style.display = "none";
 }
 
-// 保存配置
 function saveConfig() {
     const data = {
         ServiceName: document.getElementById("configServiceName").value,
+        DisplayName: document.getElementById("configDisplayName").value,
+        BinPath: document.getElementById("configBinPath").value,
+        StartMode: document.getElementById("configStartMode").value,
         Enable: document.getElementById("configEnable").value === "true",
         PollInterval: parseInt(document.getElementById("configPollInterval").value),
+        ConfigServerURL: document.getElementById("configConfigServerURL").value,
+        APIServerURL: document.getElementById("configAPIServerURL").value,
+        AppID: document.getElementById("configAppID").value,
+        Secret: document.getElementById("configSecret").value,
         QueueAPI: document.getElementById("configQueueAPI").value,
-        FeedbackAPI: document.getElementById("configFeedbackAPI").value
+        FeedbackAPI: document.getElementById("configFeedbackAPI").value,
+        ExtraAttrs: document.getElementById("configExtraAttrs").value
     };
 
     apiFetch(base + "/api/v1/sub/update", {
@@ -278,6 +502,9 @@ function saveConfig() {
         alert("保存成功");
         closeConfigModal();
         loadServices();
+    })
+    .catch(err => {
+        alert("保存失败: " + err.message);
     });
 }
 
@@ -286,10 +513,18 @@ function toggleService(name) {
     btn.disabled = true;
     btn.innerText = "处理中...";
 
-    apiFetch(base + "/api/v1/sub/list")
-    .then(data => {
-        let target = data.data.find(item => item.ServiceName == name);
-        let isRunning = target.RealPID > 0; // ✅ 修复：大写 RealPID
+    apiFetch(base + "/api/v1/sub/config?service_name=" + encodeURIComponent(name))
+    .then(svc => {
+        let isRunning = svc.RealPID > 0;
+        let isDisabled = (svc.StartMode || "") === "disabled";
+
+        // 禁用模式且未运行时不允许启动
+        if (isDisabled && !isRunning) {
+            alert("该服务为禁用模式，无法启动");
+            btn.disabled = false;
+            btn.innerText = "启动";
+            return;
+        }
 
         if (isRunning) {
             apiFetch(base + "/api/v1/sub/stop", {
@@ -301,13 +536,14 @@ function toggleService(name) {
                 btn.disabled = false;
             });
         } else {
+            let reqBody = { service_name: name };
+            if (svc.BinPath) {
+                reqBody.bin_path = svc.BinPath;
+            }
             apiFetch(base + "/api/v1/sub/start", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    service_name: name,
-                    bin_path: "/opt/msg-service/subs/" + name + "/" + name
-                })
+                body: JSON.stringify(reqBody)
             }).then(() => {
                 loadServices();
                 btn.disabled = false;
@@ -320,7 +556,6 @@ function toggleService(name) {
     });
 }
 
-// 移除服务
 function removeService(name) {
     if (!confirm(`确定要移除服务「${name}」吗？`)) return;
     apiFetch(base + "/api/v1/sub/remove", {
@@ -328,37 +563,113 @@ function removeService(name) {
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "service_name=" + encodeURIComponent(name)
     })
-    .then(() => {
-        loadServices();
-    });
+    .then(() => { loadServices(); });
 }
 
-// 新增服务弹窗
+function startAll() {
+    if (!confirm("确定要启动所有已启用的子服务吗？")) return;
+    apiFetch(base + "/api/v1/sub/startall", { method: "POST", headers: { "Content-Type": "application/json" } })
+    .then(data => { alert(data.msg || "启动完成"); loadServices(); });
+}
+
+function stopAll() {
+    if (!confirm("确定要停止所有正在运行的子服务吗？（不会修改数据库启用状态）")) return;
+    apiFetch(base + "/api/v1/sub/stopall", { method: "POST", headers: { "Content-Type": "application/json" } })
+    .then(data => { alert(data.msg || "停止完成"); loadServices(); });
+}
+
+// ====== 键值对编辑器 ======
+function openKvEditor(target) {
+    kvTarget = target;
+    const srcId = target === 'config' ? 'configExtraAttrs' : 'newExtraAttrs';
+    const srcVal = document.getElementById(srcId).value.trim();
+    const kvBody = document.getElementById('kvBody');
+    kvBody.innerHTML = '';
+    if (srcVal && srcVal !== '{}') {
+        try {
+            const obj = JSON.parse(srcVal);
+            Object.keys(obj).forEach(k => { addKvRow(k, obj[k]); });
+        } catch(e) {}
+    }
+    if (kvBody.children.length === 0) { addKvRow('', ''); }
+    document.getElementById('kvEditorModal').style.display = 'flex';
+}
+
+function addKvRow(key, val) {
+    const kvBody = document.getElementById('kvBody');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+        <td style="padding:3px 6px;"><input type="text" value="${escHtml(key||'')}" placeholder="键名" style="width:100%;"></td>
+        <td style="padding:3px 6px;"><input type="text" value="${escHtml(val||'')}" placeholder="值" style="width:100%;"></td>
+        <td style="padding:3px 0;text-align:center;"><button onclick="removeKvRow(this)" style="background:#ff4d4f;color:white;padding:2px 8px;font-size:12px;">✕</button></td>`;
+    kvBody.appendChild(tr);
+}
+
+function removeKvRow(btn) {
+    btn.closest('tr').remove();
+}
+
+function closeKvEditor() {
+    document.getElementById('kvEditorModal').style.display = 'none';
+}
+
+function confirmKvEditor() {
+    const rows = document.querySelectorAll('#kvBody tr');
+    const obj = {};
+    rows.forEach(tr => {
+        const inputs = tr.querySelectorAll('input');
+        const k = inputs[0].value.trim();
+        const v = inputs[1].value.trim();
+        if (k) obj[k] = v;
+    });
+    const json = Object.keys(obj).length > 0 ? JSON.stringify(obj) : '';
+    const destId = kvTarget === 'config' ? 'configExtraAttrs' : 'newExtraAttrs';
+    document.getElementById(destId).value = json;
+    document.getElementById('kvEditorModal').style.display = 'none';
+}
+
+// ====== 新增子服务 ======
 function openAddModal() {
-    document.getElementById("newServiceName").value = "";
-    document.getElementById("newPollInterval").value = 10;
-    document.getElementById("newQueueAPI").value = "";
-    document.getElementById("newFeedbackAPI").value = "";
-    document.getElementById("addModal").style.display = "flex";
+    // 预填主服务默认值
+    fetchMainDefaults(function(cfg) {
+        document.getElementById("newDisplayName").value = "";
+        document.getElementById("newBinPath").value = "";
+        document.getElementById("newStartMode").value = "manual";
+        document.getElementById("newPollInterval").value = 10;
+        document.getElementById("newConfigServerURL").value = "";
+        document.getElementById("newAPIServerURL").value = cfg.APIServerURL || "";
+        document.getElementById("newAppID").value = cfg.AppID || "";
+        document.getElementById("newSecret").value = cfg.Secret || "";
+        document.getElementById("newQueueAPI").value = "";
+        document.getElementById("newFeedbackAPI").value = "";
+        document.getElementById("newExtraAttrs").value = "";
+        document.getElementById("addModal").style.display = "flex";
+    });
 }
 
 function closeAddModal() {
     document.getElementById("addModal").style.display = "none";
 }
 
-// 注册新服务
 function addService() {
-    const name = document.getElementById("newServiceName").value.trim();
-    if (!name) {
-        alert("服务名称不能为空");
+    const binPath = document.getElementById("newBinPath").value.trim();
+    if (!binPath) {
+        alert("服务程序路径不能为空");
         return;
     }
     const data = {
-        ServiceName: name,
+        BinPath: binPath,
+        DisplayName: document.getElementById("newDisplayName").value,
+        StartMode: document.getElementById("newStartMode").value,
         Enable: true,
         PollInterval: parseInt(document.getElementById("newPollInterval").value),
+        ConfigServerURL: document.getElementById("newConfigServerURL").value,
+        APIServerURL: document.getElementById("newAPIServerURL").value,
+        AppID: document.getElementById("newAppID").value,
+        Secret: document.getElementById("newSecret").value,
         QueueAPI: document.getElementById("newQueueAPI").value,
-        FeedbackAPI: document.getElementById("newFeedbackAPI").value
+        FeedbackAPI: document.getElementById("newFeedbackAPI").value,
+        ExtraAttrs: document.getElementById("newExtraAttrs").value
     };
 
     apiFetch(base + "/api/v1/sub/register", {

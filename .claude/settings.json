@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3 /opt/msg-service/service.db \"CREATE TABLE IF NOT EXISTS main_configs \\(id integer PRIMARY KEY AUTOINCREMENT, created_at datetime, updated_at datetime, deleted_at datetime, api_server_url text DEFAULT '', app_id text DEFAULT '', secret text DEFAULT ''\\);\")",
+      "Bash(sqlite3 /opt/msg-service/service.db \"INSERT OR IGNORE INTO main_configs \\(id, api_server_url, app_id, secret\\) VALUES \\(1, '', '', ''\\);\")",
+      "Bash(sqlite3 /opt/msg-service/service.db \"SELECT * FROM main_configs;\")",
+      "Bash(sqlite3 /opt/msg-service/service.db \"PRAGMA table_info\\(sub_services\\);\")",
+      "Bash(sqlite3 /opt/msg-service/service.db \"ALTER TABLE sub_services ADD COLUMN extra_attrs text DEFAULT '';\")"
+    ]
+  }
+}
